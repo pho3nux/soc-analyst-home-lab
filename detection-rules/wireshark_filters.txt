@@ -1,0 +1,103 @@
+# Wireshark Display Filters for SOC Analysts
+# Tested on: ParrotOS lab environment
+# Use: Wireshark display filter bar (not capture filters)
+
+# ─────────────────────────────────────────────────
+# PORT SCAN DETECTION
+# ─────────────────────────────────────────────────
+
+# Nmap SYN scan signature (half-open scan - no ACK returned)
+tcp.flags.syn == 1 and tcp.flags.ack == 0
+
+# All RST responses (closed ports responding to scan)
+tcp.flags.reset == 1
+
+# Scan from specific attacker IP
+ip.src == 192.168.1.135 and tcp.flags.syn == 1
+
+# Full SYN scan session (source IP sending SYNs to many ports)
+ip.src == 192.168.1.135 and tcp.flags.syn == 1 and tcp.flags.ack == 0
+
+# ─────────────────────────────────────────────────
+# C2 BEACONING DETECTION
+# ─────────────────────────────────────────────────
+
+# All HTTP requests (look for regular intervals)
+http.request
+
+# POST data - potential exfiltration
+http.request.method == "POST"
+
+# Encoded data in URL parameters (base64 C2 payload)
+http.request.uri contains "?data="
+
+# All HTTP GET requests
+http.request.method == "GET"
+
+# Traffic to/from suspected C2 host
+ip.addr == 93.184.216.34
+
+# Filter out known-good traffic to find anomalies
+not ip.addr == 192.168.1.1 and http.request
+
+# ─────────────────────────────────────────────────
+# DNS ANALYSIS (C2 domain lookups)
+# ─────────────────────────────────────────────────
+
+# All DNS queries
+dns
+
+# DNS queries only (not responses)
+dns.flags.response == 0
+
+# DNS to non-standard resolver (not your gateway)
+dns and not ip.dst == 192.168.1.1
+
+# High-entropy domain names (DGA - Domain Generation Algorithm)
+# Filter manually: look for random-looking domain names in DNS queries
+
+# ─────────────────────────────────────────────────
+# EXFILTRATION DETECTION
+# ─────────────────────────────────────────────────
+
+# Large outbound transfers
+ip.src == 192.168.1.0/24 and frame.len > 1400
+
+# ICMP with data payload (ICMP tunneling)
+icmp and data
+
+# DNS with large responses (DNS tunneling)
+dns and dns.resp.len > 100
+
+# ─────────────────────────────────────────────────
+# GENERAL INVESTIGATION
+# ─────────────────────────────────────────────────
+
+# Traffic between two specific hosts
+ip.addr == 192.168.1.135 and ip.addr == 192.168.1.100
+
+# All traffic from attacker machine
+ip.src == 192.168.1.135
+
+# Show only established TCP sessions (no SYN flood)
+tcp.flags.ack == 1 and not tcp.flags.syn == 1
+
+# HTTP traffic with user-agent strings (for C2 profiling)
+http.user_agent
+
+# ─────────────────────────────────────────────────
+# WORKFLOW NOTES
+# ─────────────────────────────────────────────────
+# C2 Beaconing Analysis Steps:
+#   1. Filter: http.request
+#   2. Statistics > I/O Graph — look for regular spikes
+#   3. Find suspicious host, filter: ip.addr == [suspicious IP]
+#   4. Right-click packet > Follow > TCP Stream
+#   5. Look for: regular intervals, encoded params, consistent user-agent
+#   6. Check destination IP on VirusTotal + AbuseIPDB
+#
+# Port Scan Analysis Steps:
+#   1. Filter: tcp.flags.syn == 1 and tcp.flags.ack == 0
+#   2. Statistics > Conversations (TCP tab) — look for single src, many dsts
+#   3. Sort by Packets — scan shows many short 1-2 packet conversations
+#   4. Identify source IP and correlate with SIEM logs

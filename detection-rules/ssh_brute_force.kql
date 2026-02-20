@@ -1,1 +1,60 @@
+# SSH Brute Force Detection Rules
+# Platform: Kibana (Elastic SIEM)
+# Index: filebeat-*
 
+# ─────────────────────────────────────────────────
+# RULE 1: Basic Failed Password Filter
+# Use in Kibana Dashboard or Discover view
+# ─────────────────────────────────────────────────
+message: "Failed password"
+
+# ─────────────────────────────────────────────────
+# RULE 2: Invalid User Brute Force (wordlist attack)
+# Targets non-existent accounts — automated tooling signature
+# ─────────────────────────────────────────────────
+message: "Failed password" AND message: "invalid user"
+
+# ─────────────────────────────────────────────────
+# RULE 3: Multiple Failures from Same Source
+# Combine with Kibana Alert: count > 5 in 1 minute
+# Group by: source IP (parsed from message field)
+# ─────────────────────────────────────────────────
+message: "Failed password" AND message: "invalid user"
+
+# Kibana Alert Rule Settings:
+#   Trigger:   Count > 5 within 1 minute window
+#   Group by:  Source IP
+#   Severity:  Medium
+#   Action:    Email / webhook
+
+# ─────────────────────────────────────────────────
+# RULE 4: PAM Authentication Failures
+# Catches PAM-layer rejections (deeper than sshd log)
+# ─────────────────────────────────────────────────
+message: "authentication failure" AND message: "sshd"
+
+# ─────────────────────────────────────────────────
+# RULE 5: Rapid Reconnection Pattern
+# Session close immediately followed by new connection
+# ─────────────────────────────────────────────────
+message: "Disconnected" AND message: "Failed password"
+
+# ─────────────────────────────────────────────────
+# NOTES
+# ─────────────────────────────────────────────────
+# Key log patterns to recognise:
+#   Failed password for invalid user [user] from [IP] port [port] ssh2
+#   pam_unix(sshd:auth): authentication failure
+#   PAM 2 more authentication failures
+#   Disconnected from [IP] port [port]
+#
+# True Positive indicators:
+#   - >5 failures in <60 seconds
+#   - "invalid user" = username doesn't exist (automated wordlist)
+#   - Sequential port numbers = new TCP connection per attempt
+#   - Immediate reconnect after disconnect
+#
+# False Positive indicators:
+#   - Known admin with typo (check time of day, username)
+#   - Legitimate service with misconfigured credentials
+#   - Single failure from known IP
